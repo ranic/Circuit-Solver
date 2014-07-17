@@ -4,11 +4,15 @@
 
 from Tkinter import *
 import tkSimpleDialog
+import tkFileDialog
+import pickle
 from numpy import *
 
 # Constants
 CELL_SIZE = 20
 OFFSCREEN = (-50, -50)
+
+# TODO: Saving and loading state
 
 ####################################################
 ## Classes for circuit elements
@@ -34,8 +38,9 @@ class Circuit(object):
         self.ground = location
 
     def __str__(self):
-        return "%s\n Ground: %s" % ("\n".join(["\n".join(map(str,v.elements)) \
-                                    for (k,v) in self.nodes.iteritems()]), self.ground)
+        elementStr = "\n".join(["\n".join(map(str,v.elements)) \
+                                    for (k,v) in self.nodes.iteritems()])
+        return "%s\n Ground: %s" % (elementStr, self.ground)
 
     ####################################################
     ## Function that solves the circuit
@@ -358,22 +363,33 @@ def drawMotionElements():
     drawResistor(rx,ry)
 
 def keyPressed(event):
+    key = event.keysym.lower()
+
     #Solves circuit
-    if event.keysym == "c":
+    if key == "c":
         canvas.data.circuit.solve()
         canvas.data.drawWire = False
-    #Reset!
-    if event.keysym == "r":
+    #Reset
+    if key == "r":
         init()
     #Print's what's on the circuit
-    if event.keysym == "p":
+    if key == "p":
         print canvas.data.circuit
     #shows element pane
-    if event.keysym =="e":
+    if key =="e":
         canvas.data.showElementPane = not canvas.data.showElementPane
     #allows user to draw wire
-    if event.keysym == "w":
+    if key == "w":
         canvas.data.drawWire = not canvas.data.drawWire
+    # save to file
+    if key == "s":
+        filename = tkFileDialog.asksaveasfilename()
+        with open(filename, 'w') as f:
+            pickle.dump(canvas.data, f)
+    if key == "l":
+        filename = tkFileDialog.askopenfilename()
+        #with open(filename, 'r') as f:
+        #    canvas.data = pickle.load(f)
     redrawAll()
 
 def timerFired():
@@ -434,7 +450,7 @@ def drawResistor(cx,cy):
 def drawVoltageSource(cx,cy,r):
     canvas.create_line(cx,cy + 2*r,cx,cy-2*r,fill="yellow")
     canvas.create_oval(cx-r,cy-r,cx + r,cy + r,fill = "white")
-    canvas.create_text(cx,cy,text=" + \n-",font = "helevetica 14")
+    canvas.create_text(cx,cy,text=" + \n -",font = "helevetica 14")
 
 #Function to create ground
 def drawGround(x,top):
