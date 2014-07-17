@@ -522,39 +522,27 @@ def RREF(M):
         lead += 1
     return M
 
+def isNonZero(x):
+    return abs(x) > 0.0001
+
 # TODO: Make these more elegant
-#Non-destructively removes zero rows from a matrix
+# Returns a new matrix with all non-zero rows of M
 def clearZeroRows(M):
-    newM = []
-    for row in M:
-        for element in row:
-            if abs(element) > 0.0001:
-                newM.append(row)
-                break
-    return newM
+    return [row for row in M if any(map(isNonZero, row))]
 
 #Does the same as above for columns (and removes the last column)
 def clearZeroCols(M):
-    newM = []
-    a = zip(*M)
-    for i in xrange(len(a)-1):
-        for num in a[i]:
-            if abs(num) > 0.0001:
-                newM.append(list(a[i]))
-                break
-    reTransposeM = zip(*newM)
-    for item in reTransposeM:
-        item = list(item)
-    return reTransposeM
-
-def lastCol(M):
-    return [[row[-1]] for row in M]
+    transpose = zip(*M)
+    noZeros = clearZeroRows(map(list, transpose))
+    return map(list, zip(*noZeros))
 
 #Goes through all steps to remove redundant equations and solve Ax = b
 def solveMatrix(A):
     RREF(A)
-    coefficientMatrix = clearZeroCols(clearZeroRows(A))
-    solution = lastCol(clearZeroRows(A))
+    # Clear out empty equations and remove the non-coefficient column
+    noZeroRows = clearZeroRows(A)
+    coefficientMatrix = [row[:-1] for row in clearZeroCols(noZeroRows)]
+    solution = [[row[-1]] for row in noZeroRows]
     matrixAnswer = linalg.solve(coefficientMatrix,solution)
 
     # Return as python list
