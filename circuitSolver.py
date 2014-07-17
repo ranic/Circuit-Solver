@@ -6,6 +6,10 @@ from Tkinter import *
 import tkSimpleDialog
 from numpy import *
 
+# Constants
+CELL_SIZE = 20
+OFFSCREEN = (-50, -50)
+
 ####################################################
 ## Classes for circuit elements
 ####################################################
@@ -13,12 +17,11 @@ from numpy import *
 #Only one circuit instance is created, holds all the nodes
 class Circuit(object):
     def __init__(self):
-        self.nodes = {}
+        self.nodes = dict()
         self.ground = None
 
-    #Every time an element is dragged in, a connection
-    #is added between those two nodes (src and dest)
     def addElement(self, element):
+        """ Create and add an element to the circuit """
         src, dest = element.src, element.dest
         if src not in self.nodes:
             self.nodes[src] = Node(src)
@@ -39,123 +42,85 @@ class Circuit(object):
     ####################################################
 
     def solve(self):
-        #So that if user modifies the circuit,
-        #unsolvable doesn't still show up
         canvas.data.circuit.unsolvable = False
         canvas.data.displayAnswer = False
-        #A circuit with no voltage sources has no ground
-        #and is not solvable
+
+        # A circuit with no voltage sources is unsolvable
         if len(canvas.data.voltageSources) == 0:
             canvas.data.circuit.unsolvable = True
             return
-        #Maps the node voltages (yet unknown) to columns in the
-        #matrix. Makes solving the matrix consistent and easy.
-        self.voltLocations,self.dim = self.mapNodesToMatrix()
-        #See function below
-        voltages = self.createEquations()
+
+        # Map each node location to a variable in the system of equations (column in the matrix)
+        self.nodeToCol = dict((k, i) for i, (k,_) in enumerate(self.nodes.iteritems()))
+        self.dim = len(self.nodes)
+
         try:
-            solution = solveMatrix(voltages)
-        except:
+            solution = solveMatrix(self.createEquations())
+        except Exception as e:
+            print e
             canvas.data.circuit.unsolvable = True
             return
-        #inverts voltLocations to get the answer back into node form
-        self.matrixToLocations = \
-        dict([[v,k] for k,v in self.voltLocations.items()])
-        #sets the nodeVoltage of each node (found by location) to the voltage
-        #value solved for with the matrix 'voltages'
-        self.nodeVoltages = {}
-        for j in xrange(len(solution)):
-            node = self.nodes[self.matrixToLocations[j]]
-            node.voltage = solution[j][0]
-            self.nodeVoltages[node.location] = node.voltage
-        #allows the program to display answer if a user clicks a node
+
+        for loc, node in self.nodes.iteritems():
+            node.voltage = solution[self.nodeToCol[loc]][0]
+
         canvas.data.displayAnswer = True
 
     #Creates each node equation using a KCL (if needed)
     #Goes through each node, starting with ground
     #Stores all these equations in the matrix 'voltages'
     def createEquations(self):
-        dim = self.dim
-        voltLocations = self.voltLocations
         voltages = []
-        groundEquation = [0]*(dim+1)
-        #The node that's connected to ground is given a coefficient
-        #of 1 and set equal to the ground voltage (0)
-        groundEquation[voltLocations[self.ground]] = 1
-        #add the ground equation to
+
+        # Ground equation forces ground node to be 0 volts
+        groundEquation = [0]*(self.dim + 1)
+        groundEquation[self.nodeToCol[self.ground]] = 1
         voltages.append(groundEquation)
-        #Goes through all nodes and each node connection
-        for nodeLocation in self.nodes:
-            #And then each connection that the node has
-            for element in self.nodes[nodeLocation].elements:
-                nodeLoc1 = voltLocations[element.src]
-                nodeLoc2 = voltLocations[element.dest]
-                #testing situation for two nodes separated by a voltage source
-                #the equation is n1 - n2 = voltageValue
+
+        canKCL = False
+
+        for loc, node in self.nodes.iteritems():
+            # First, create all voltage source equations
+            for element in node.elements:
+                src = self.nodeToCol[element.src]
+                dest = self.nodeToCol[element.dest]
+
+                # Equation is n1 - n2 = voltageValue for voltage sources
                 if isinstance(element, VoltageSource):
-                    equation = [0]*(dim+1)
-                    equation[nodeLoc1] = 1
-                    equation[nodeLoc2] = -1
-                    equation[dim] = -element.voltage
+                    equation = [0]*(self.dim + 1)
+                    equation[src] = 1
+                    equation[dest] = -1
+                    equation[self.dim] = -element.voltage
                     voltages.append(equation)
-            canKCL = False
-            #Goes through each connection for that node,
-            #if the connection contains a resistor, KCL algorithm can be
-            #applied. This KCL is used to generate an equation, which is
-            #done in the recursivelyFindCurrent function and added to the
-            #matrix.
-            for element in self.nodes[nodeLocation].elements:
-                if isinstance(element, Resistor):
-                    canKCL = True
-            if canKCL:
-                self.KCLEquation = [0] * (self.dim + 1)
-                self.visitedElements = set()
-                self.recursivelyFindCurrent(nodeLocation)
-                voltages.append(self.KCLEquation)
+
+            # Next, use KCL to produce equations for nodes connecting resistors
+            if any([isinstance(e, Resistor) for e in node.elements]):
+                equation = [0]*(self.dim + 1)
+                self.recursivelyFindCurrent(loc, set(), equation)
+                voltages.append(equation)
         return voltages
 
-    # Generates and solves KCL equations (current in = current out) for each node
-    # Current for connections with resistors are 
-    #voltage difference by resistance.
-    #For all non-resistors, current is found recursively by checking all
-    #currents entering *that* element.
-    def recursivelyFindCurrent(self,location):
-        voltLocations = self.voltLocations
-        for elements in self.nodes[location].elements:
+    def recursivelyFindCurrent(self, location, visited, equation):
+        """ Find current using either Ohm's law or recursively with KCL """
+        for element in self.nodes[location].elements:
             #if the connection was already visited, don't do anything
             #otherwise, this would recurse infinitely
-            if elements in self.visitedElements:
-                pass
-            else:
-                self.visitedElements.add(element)
+            if element not in visited:
+                visited.add(element)
+
                 #Base case: two nodes are connected by a resistor
                 if isinstance(element, Resistor):
-                    srcIndex = self.voltLocations[element.src]
-                    destIndex = self.voltLocations[element.dest]
-                    #currents going into, so it's src - dest
-                    self.KCLEquation[destIndex] += -1.0/element.resistance
-                    self.KCLEquation[srcIndex] += 1.0/element.resistance
+                    srcIndex = self.nodeToCol[element.src]
+                    destIndex = self.nodeToCol[element.dest]
+
+                    # Equation is src - dest (normalized by R)
+                    equation[srcIndex] += 1.0/element.resistance
+                    equation[destIndex] += -1.0/element.resistance
+
                 #Recursive case: nodes connected by a non-resistive element
                 #Go through using KCLs and add them up to get the current
                 else:
-                    self.recursivelyFindCurrent(element.dest)
-
-    #Maps each node to a specific column in the matrix that needs to be solved
-    #When the matrix is solved, the solution set can easily be mapped back to
-    #the original nodes, giving them their voltages
-    def mapNodesToMatrix(self):
-        #dictionary that maps node locations to places in the matrix
-        voltLocations = {}
-        i = 0
-        #goes through all nodes (by location) and gives them increasing
-        #indices by which to be put into the matrix of node voltages
-        for nodeLocation in self.nodes:
-            node = self.nodes[nodeLocation]
-            node.voltage = 0
-            node.current = 0
-            voltLocations[nodeLocation] = i
-            i += 1
-        return voltLocations,i
+                    self.recursivelyFindCurrent(element.dest, visited, equation)
 
 class Element:
 
@@ -168,7 +133,7 @@ class Element:
 
     def resetCurrent(self, value=None):
         self.current = value
- 
+
     def __str__(self):
         return "src: %s, dest: %s" % (self.src, self.dest)
 
@@ -176,15 +141,15 @@ class Element:
         raise NotImplementedError
 
 class VoltageSource(Element):
-    
+
     def __init__(self, src, dest, voltage):
         Element.__init__(self, src, dest)
         self.voltage = voltage
-    
+
     # TODO: Don't return a separate element for this...
     def inverse(self):
         return VoltageSource(self.dest, self.src, -self.voltage)
-    
+
     def __str__(self):
         s = Element.__str__(self)
         return "Voltage Source: %s, voltage: %0.3f" % (s, self.voltage)
@@ -210,8 +175,6 @@ class Node(object):
         self.voltage = voltage
         self.current = current
 
-    #adds connections to nodes so that they know how they
-    #are related on the board
     def addElement(self, element):
         assert(self.location == element.src)
         self.elements.append(element)
@@ -235,22 +198,20 @@ def isResistor(x,y):
 #After the circuit is solved, checks which node the user selects
 #and stores that node's location and voltage into a display variable
 def isNode(x,y):
-    cellSize = 20
     nodes = canvas.data.circuit.nodes
     for node in canvas.data.circuit.nodes:
         #allows for leeway in where the user clicks
-        if node[0] in range(x-cellSize,x+cellSize):
-            if node[1] in range(y-cellSize,y+cellSize):
+        if node[0] in range(x-CELL_SIZE,x + CELL_SIZE):
+            if node[1] in range(y-CELL_SIZE,y + CELL_SIZE):
                 canvas.data.displayedNode = (node,nodes[node].voltage)
                 return canvas.data.displayedNode
     return False
 
 #Uses the "closest bus stop" solution to snap the pieces to the nodes
 def snapToGrid(x,y):
-    cellSize = 20
-    a = cellSize/2
-    snappedX = ((x+a)/cellSize)*cellSize
-    snappedY = ((y+a)/cellSize)*cellSize
+    a = CELL_SIZE/2
+    snappedX = ((x + a)/CELL_SIZE)*CELL_SIZE
+    snappedY = ((y + a)/CELL_SIZE)*CELL_SIZE
     return snappedX,snappedY
 
 #########################################################################
@@ -313,12 +274,12 @@ def addVoltageToGrid(x,y):
     #Otherwise, create the connection object for the voltage
     if voltValue != None:
         canvas.data.voltageSources.add(canvas.data.clickedVoltage)
-        a = VoltageSource((x,y+40),(x,y-40), voltValue)
+        a = VoltageSource((x,y + 40),(x,y-40), voltValue)
         canvas.data.circuit.addElement(a)
     #adds ground to the bottom of the first voltage source
     if len(canvas.data.voltageSources) == 1 and voltValue != None:
-        canvas.data.grounds = (x,y+40)
-        canvas.data.circuit.addGround((x,y+40))
+        canvas.data.grounds = (x,y + 40)
+        canvas.data.circuit.addGround((x,y + 40))
 
 #Mouse pressed actions if user selects a Resistor
 def mousePressedResistor(event):
@@ -347,7 +308,7 @@ def addResistorToGrid(x,y):
             break
     if resistance != None:
         canvas.data.resistors.add(canvas.data.clickedResistor)
-        b = Resistor((x-40,y),(x+40,y), resistance)
+        b = Resistor((x-40,y),(x + 40,y), resistance)
         canvas.data.circuit.addElement(b)
 
 #When the user clicks on a node after solving the circuit,
@@ -463,25 +424,24 @@ def displayNodeVoltage():
 #Function that draws a resistor
 def drawResistor(cx,cy):
     #c represents the 'center' of the resistor, where it's length is 80 pixels
-    cellSize = 20
-    eLeft,eRight = cx-2*cellSize,cx+2*cellSize #left and right endpoints
-    halfCell = cellSize/2
+    eLeft,eRight = cx-2*CELL_SIZE,cx + 2*CELL_SIZE #left and right endpoints
+    halfCell = CELL_SIZE/2
     canvas.create_line(eLeft,cy,eRight,cy,fill="yellow")
-    canvas.create_rectangle(eLeft+cellSize,cy+halfCell/2,
-    eRight-cellSize,cy-halfCell/2,fill="red")
+    canvas.create_rectangle(eLeft + CELL_SIZE,cy + halfCell/2,
+    eRight-CELL_SIZE,cy-halfCell/2,fill="red")
 
 #Function that draws a voltage source
 def drawVoltageSource(cx,cy,r):
-    canvas.create_line(cx,cy+2*r,cx,cy-2*r,fill="yellow")
-    canvas.create_oval(cx-r,cy-r,cx+r,cy+r,fill = "white")
-    canvas.create_text(cx,cy,text="+\n-",font = "helevetica 14")
+    canvas.create_line(cx,cy + 2*r,cx,cy-2*r,fill="yellow")
+    canvas.create_oval(cx-r,cy-r,cx + r,cy + r,fill = "white")
+    canvas.create_text(cx,cy,text=" + \n-",font = "helevetica 14")
 
 #Function to create ground
 def drawGround(x,top):
-    canvas.create_line(x,top,x,top+10,fill="brown")
-    canvas.create_line(x-10,top+15,x+10,top+15,fill="brown",width=2)
-    canvas.create_line(x-5,top+20,x+5,top+20,fill="brown",width=2)
-    canvas.create_line(x-2,top+25,x+2,top+25,fill="brown")
+    canvas.create_line(x,top,x,top + 10,fill="brown")
+    canvas.create_line(x-10,top + 15,x + 10,top + 15,fill="brown",width=2)
+    canvas.create_line(x-5,top + 20,x + 5,top + 20,fill="brown",width=2)
+    canvas.create_line(x-2,top + 25,x + 2,top + 25,fill="brown")
 
 #Generates grid , element pane, instructions, and node voltage
 def background():
@@ -546,6 +506,7 @@ def RREF(M):
         lead += 1
     return M
 
+# TODO: Make these more elegant
 #Non-destructively removes zero rows from a matrix
 def clearZeroRows(M):
     newM = []
@@ -570,31 +531,18 @@ def clearZeroCols(M):
         item = list(item)
     return reTransposeM
 
-#gets the last col of the augmented matrix (a.k.a, b in Ax = b)
 def lastCol(M):
-    lastCol = []
-    for row in M:
-        lastCol.append([row[-1]])
-    return lastCol
+    return [[row[-1]] for row in M]
 
 #Goes through all steps to remove redundant equations and solve Ax = b
 def solveMatrix(A):
-    #Row reduces matrix
     RREF(A)
-    #clears away all unecessary rows/cols
     coefficientMatrix = clearZeroCols(clearZeroRows(A))
-    print coefficientMatrix
-    #takes the last col of the matrix as 'b'
     solution = lastCol(clearZeroRows(A))
-    #Uses numpy's linalg extension to solve Ax = b for x, the node voltages
     matrixAnswer = linalg.solve(coefficientMatrix,solution)
-    print matrixAnswer
-    answer = []
-    #convers the answer to list form
-    for i in matrixAnswer:
-        num = [round(linalg.det([i]),3)]
-        answer.append(num)
-    return answer
+
+    # Return as python list
+    return [[round(linalg.det([i]),3)] for i in matrixAnswer]
 
 
 #################################################################
@@ -612,17 +560,17 @@ def init():
 def visualElementInit():
     canvas.data.isClicked = True
     canvas.data.draggingVoltage = False
-    canvas.data.clickedVoltage = (-50,-50)
+    canvas.data.clickedVoltage = OFFSCREEN
     canvas.data.draggingResistor = False
-    canvas.data.clickedResistor = (-50,-50)
+    canvas.data.clickedResistor = OFFSCREEN
     canvas.data.draggingGround = False
     canvas.data.drawWire = False
     canvas.data.wires = []
-    canvas.data.grounds = (-50,-50)
+    canvas.data.grounds = OFFSCREEN
     canvas.data.voltageSources = set()
     canvas.data.resistors = set()
     canvas.data.displayAnswer = False
-    canvas.data.displayedNode = (-50,-50)
+    canvas.data.displayedNode = OFFSCREEN
 
 def objectInit():
     canvas.data.circuit = Circuit()
