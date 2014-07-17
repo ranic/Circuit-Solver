@@ -61,7 +61,7 @@ class Circuit(object):
 
         try:
             solution = solveMatrix(self.createEquations())
-        except Exception as e:
+        except linalg.LinAlgError as e:
             print e
             canvas.data.circuit.unsolvable = True
             return
@@ -525,27 +525,27 @@ def RREF(M):
 def isNonZero(x):
     return abs(x) > 0.0001
 
-# TODO: Make these more elegant
-# Returns a new matrix with all non-zero rows of M
 def clearZeroRows(M):
     return [row for row in M if any(map(isNonZero, row))]
 
-#Does the same as above for columns (and removes the last column)
 def clearZeroCols(M):
-    transpose = zip(*M)
+    transpose = zip(*M)[0]
     noZeros = clearZeroRows(map(list, transpose))
     return map(list, zip(*noZeros))
 
 #Goes through all steps to remove redundant equations and solve Ax = b
 def solveMatrix(A):
     RREF(A)
-    # Clear out empty equations and remove the non-coefficient column
-    noZeroRows = clearZeroRows(A)
-    coefficientMatrix = [row[:-1] for row in clearZeroCols(noZeroRows)]
-    solution = [[row[-1]] for row in noZeroRows]
-    matrixAnswer = linalg.solve(coefficientMatrix,solution)
 
-    # Return as python list
+    # Clear out empty equations
+    noZeroRows = clearZeroRows(A)
+
+    # Solution is the last column in the matrix
+    solutionVector = [[row[-1]] for row in noZeroRows]
+    coefficientMatrix = clearZeroCols([[row[:-1]] for row in noZeroRows])
+
+    # Solve and return as python list
+    matrixAnswer = linalg.solve(coefficientMatrix,solutionVector)
     return [[round(linalg.det([i]),3)] for i in matrixAnswer]
 
 
