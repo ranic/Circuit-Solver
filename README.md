@@ -5,7 +5,7 @@ Originally my term project for 15-112 (Fundamentals of Computer Science) taken i
 
 Usage:
 
-    - Run on the command line with "python circuitSolver.py"
+    - Run on the command line with "python gui.py"
     - Press 'e' to show the element pane
     - Build your circuit and solve it!
 
