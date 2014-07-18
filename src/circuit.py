@@ -32,12 +32,13 @@ class Circuit(object):
 
     def removeElement(self, element):
         src, dest = element.src, element.dest
+        print src, dest
         assert(src in self.nodes)
         assert(dest in self.nodes)
-        self.nodes[src].remove(element)
-        self.nodes[src].remove(element.inverse())
-        self.nodes[dest].remove(element)
-        self.nodes[dest].remove(element.inverse())
+        print "src: ", self.nodes[src].elements
+        print "dest: ", self.nodes[dest].elements
+        self.nodes[src].elements.remove(element)
+        self.nodes[dest].elements.remove(element.inverse())
 
     def voltageSources(self):
         return filter(lambda x: isinstance(x, VoltageSource) and x.voltage, self.elements) 
@@ -68,7 +69,7 @@ class Circuit(object):
         if not self.voltageSources():
             self.unsolvable = True
             return
-
+        print self 
         # Map each node location to a variable in the system of equations (column in the matrix)
         self.nodeToCol = dict((k, i) for i, (k,_) in enumerate(self.nodes.iteritems()))
         self.dim = len(self.nodes)
@@ -112,7 +113,7 @@ class Circuit(object):
                 equation = [0]*(self.dim + 1)
                 self._buildKCLEquation(loc, set(), equation)
                 equations.append(equation)
-        print equations
+
         return equations
 
     def _buildKCLEquation(self, location, visited, equation):
@@ -172,6 +173,10 @@ class VoltageSource(Element):
     def inverse(self):
         return VoltageSource(self.dest, self.src, -self.voltage)
 
+    def __eq__(self, other):
+        return isinstance(other, VoltageSource) and self.voltage == other.voltage \
+                                                and Element.__eq__(self, other)
+
     def __str__(self):
         s = Element.__str__(self)
         return "Voltage Source: %s, voltage: %0.3f" % (s, self.voltage)
@@ -186,6 +191,10 @@ class Resistor(Element):
     def inverse(self):
         return Resistor(self.dest, self.src, self.resistance)
 
+    def __eq__(self, other):
+        return isinstance(other, Resistor) and self.resistance == other.resistance \
+                                           and Element.__eq__(self, other)
+
     def __str__(self):
         s = Element.__str__(self)
         return "Resistor: %s, resistance: %0.3f" % (s, self.resistance)
@@ -193,6 +202,12 @@ class Resistor(Element):
 class Wire(VoltageSource):
     def __init__(self, src, dest):
         VoltageSource.__init__(self, src, dest, 0)
+
+    def inverse(self):
+        return Wire(self.dest, self.src)
+
+    def __eq__(self, other):
+        return isinstance(other, Wire) and VoltageSource.__eq__(self, other)
 
 class Node(object):
     def __init__(self,location,voltage=0,current=0):

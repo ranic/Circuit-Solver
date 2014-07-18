@@ -31,13 +31,12 @@ def mousePressedWire(event):
     if inBounds(event.x,event.y):
         x,y = snapToGrid(event.x,event.y)
         if canvas.data.isClicked:
-            canvas.data.circuit.addElement(Wire((x,y), (x,y)))
+            canvas.data.currentWire = Wire((x,y), (x,y))
         else:
-            wires = canvas.data.circuit.wires()
-            lastWire = wires[-1]
             # If wire drawn on same point, delete it
-            if lastWire.src == lastWire.dest:
-                canvas.data.circuit.removeElement(lastWire)
+            if canvas.data.currentWire.src != canvas.data.currentWire.dest:
+                canvas.data.circuit.addElement(canvas.data.currentWire)
+            canvas.data.currentWire = None
 
 # Mouse pressed actions if user selects a Voltage Source
 def mousePressedVoltage(event):
@@ -72,7 +71,6 @@ def addVoltageToGrid(x,y):
         canvas.data.circuit.addElement(a)
     # adds ground to the bottom of the first voltage source
     if len(canvas.data.circuit.voltageSources()) == 1 and voltValue != None:
-        canvas.data.grounds = (x,y + 40)
         canvas.data.circuit.addGround((x,y + 40))
 
 # Mouse pressed actions if user selects a Resistor
@@ -128,12 +126,9 @@ def motion(event):
             motionGround(event)
 
 def motionWire(event):
-    wires = canvas.data.circuit.wires()
-    if len(wires) > 0:
-        # draws only the wire that was just added to the list
-        lastWire = wires[-1]
-        if canvas.data.isClicked:
-            lastWire.dest = snapToGrid(event.x,event.y) # draw wire as user drags
+    # Draw wire as user drags mouse
+    if canvas.data.currentWire is not None and canvas.data.isClicked:
+        canvas.data.currentWire.dest = snapToGrid(event.x,event.y)
 
 # Draws voltage as the cursor moves
 def motionVoltage(event):
@@ -237,6 +232,13 @@ def displayNodeVoltage():
             font = "helvetica 14"
             canvas.create_text(200,450,text=text,font=font,fill ="red")
 
+
+def displayWireMode():
+    if canvas.data.drawWire:
+        text = "Wire mode: Click to start a wire, press 'w' to exit"
+        font = "helvetica 14"
+        canvas.create_text(200,400,text=text,font=font,fill ="red")
+
 # Function that draws a resistor
 def drawResistor(cx,cy):
     # c represents the 'center' of the resistor, where it's length is 80 pixels
@@ -266,6 +268,7 @@ def background():
         drawElementPane()
     drawInstructions()
     displayNodeVoltage()
+    displayWireMode()
 
 # Draws each voltage source, resistor, ground, and 'unsolvable'
 # if it applies
@@ -276,10 +279,17 @@ def drawCircuit():
         x1, y1 = wire.src
         x2, y2 = wire.dest
         canvas.create_line(x1,y1,x2,y2,fill="yellow")
+
+    if canvas.data.currentWire is not None:
+        x1, y1 = canvas.data.currentWire.src
+        x2, y2 = canvas.data.currentWire.dest
+        canvas.create_line(x1,y1,x2,y2,fill="yellow")
+
     for resistor in canvas.data.circuit.resistors():
         drawResistor(*getCenter(resistor))
-    if (canvas.data.grounds[0] > 0 and canvas.data.grounds[1] > 0):
-        drawGround(canvas.data.grounds[0],canvas.data.grounds[1])
+    if (canvas.data.circuit.ground):
+        ground = canvas.data.circuit.ground
+        drawGround(ground[0], ground[1])
     if canvas.data.circuit.unsolvable:
         font = "helvetica 20"
         canvas.create_text(250,450,text="UNSOLVABLE",font=font,fill = "red")
@@ -335,7 +345,7 @@ def init():
     background()
 
 def visualElementInit():
-    canvas.data.showElementPane = False
+    canvas.data.showElementPane = True
     canvas.data.isClicked = False
     canvas.data.drawWire = False
     canvas.data.isClicked = True
@@ -345,9 +355,8 @@ def visualElementInit():
     canvas.data.clickedResistor = OFFSCREEN
     canvas.data.draggingGround = False
     canvas.data.drawWire = False
-    canvas.data.grounds = OFFSCREEN
     canvas.data.displayedNode = OFFSCREEN
-
+    canvas.data.currentWire = None
 
 def run():
     #  create the root and the canvas

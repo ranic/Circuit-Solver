@@ -1,7 +1,7 @@
 """ Matrix math """
 
 from numpy import linalg
-
+from pprint import pprint as pp
 #################################################################
 ## Matrix functions to solve a system of linear equations: Ax = b
 #################################################################
@@ -51,13 +51,15 @@ def clearZeroCols(M):
 def solveMatrix(A):
     RREF(A)
 
+    pp(A)
     # Clear out empty equations
     noZeroRows = clearZeroRows(A)
 
     # Solution is the last column in the matrix
     solutionVector = [[row[-1]] for row in noZeroRows]
     coefficientMatrix = clearZeroCols([[row[:-1]] for row in noZeroRows])
-
+    pp(coefficientMatrix)
+    pp(solutionVector)
     # Solve and return as python list
     try:
         matrixAnswer = linalg.solve(coefficientMatrix,solutionVector)
